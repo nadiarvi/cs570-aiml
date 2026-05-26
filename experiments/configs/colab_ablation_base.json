@@ -1,0 +1,18 @@
+{
+  "_comment": "Colab config — paths point to Google Drive mount. Use this as base for run_ablation().",
+  "seed": 42,
+  "split_path": "/content/drive/MyDrive/cs570-project/data/splits/split_seed42.json",
+  "processed_dir": "/content/drive/MyDrive/cs570-project/data/processed",
+  "gold_labels_path": "/content/drive/MyDrive/cs570-project/data/gold/gold_test_labels.csv",
+  "hidden_dim": 256,
+  "dropout": 0.3,
+  "lr": 0.001,
+  "weight_decay": 0.0001,
+  "epochs": 100,
+  "patience": 15,
+  "batch_size": 32,
+  "num_workers": 0,
+  "device": "cuda",
+  "save_root": "/content/drive/MyDrive/cs570-project/results/checkpoints",
+  "num_heads": 4
+}
