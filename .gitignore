@@ -19,9 +19,16 @@ env/
 data/raw/*
 data/processed/*
 data/splits/*
+data/gold/*
 results/checkpoints/*
 results/logs/*
 results/figures/*
+results/ablation_results.csv
+embedding_cache.json
+*.zip
+*.tar.gz
+*.npy
+*.crdownload
 
 # Keep directory placeholders
 !data/raw/.gitkeep
