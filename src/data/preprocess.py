@@ -44,10 +44,13 @@ def _process_one(args: tuple) -> str | None:
         screen_id = os.path.splitext(os.path.basename(json_path))[0]
         app_id = get_app_id(json_path)
 
-        # Determine partition from split
-        if json_path in split.get("train_paths", []):
+        # Determine partition by app_id — robust across sessions and extraction paths
+        train_app_ids = set(split.get("train_app_ids", []))
+        val_app_ids   = set(split.get("val_app_ids", []))
+
+        if app_id in train_app_ids:
             partition = "train"
-        elif json_path in split.get("val_paths", []):
+        elif app_id in val_app_ids:
             partition = "val"
         else:
             partition = "other"
