@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local/editor files
+.DS_Store
+.idea/
+.vscode/
+
+# Data and generated outputs
+data/raw/*
+data/processed/*
+data/splits/*
+results/checkpoints/*
+results/logs/*
+results/figures/*
+
+# Keep directory placeholders
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/splits/.gitkeep
+!results/checkpoints/.gitkeep
+!results/logs/.gitkeep
+!results/figures/.gitkeep
+
