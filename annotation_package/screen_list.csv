@@ -1,0 +1,51 @@
+screen_id,assigned_to,overlap,app_id,est_nodes,notes
+20353,both,yes,com.example.shopping,38,checkout flow — likely many canonical nodes
+21089,both,yes,com.example.banking,45,bank dashboard — balances and account info
+23456,both,yes,com.example.ecommerce,52,product listing with prices
+25871,both,yes,com.example.travel,41,booking confirmation screen
+30124,both,yes,com.example.food,29,restaurant order summary
+33567,both,yes,com.example.finance,57,investment portfolio screen
+40892,both,yes,com.example.retail,34,cart and checkout summary
+45231,both,yes,com.example.utility,22,account settings with credentials
+51678,both,yes,com.example.social,48,profile screen with personal info
+58903,both,yes,com.example.payment,36,payment transfer confirmation
+61234,A,no,com.example.news,31,news article listing
+62891,A,no,com.example.music,27,music player home screen
+64523,A,no,com.example.fitness,44,workout tracking dashboard
+67012,A,no,com.example.maps,19,navigation search screen
+70345,A,no,com.example.productivity,39,task list and settings
+72689,A,no,com.example.weather,24,weather home with forecast
+74021,A,no,com.example.camera,18,camera gallery grid
+76543,A,no,com.example.messaging,55,chat conversation screen
+78901,A,no,com.example.notes,32,note editor screen
+80234,A,no,com.example.calendar,29,calendar event detail
+82567,A,no,com.example.health,43,health vitals dashboard
+84090,A,no,com.example.games,21,game home / leaderboard
+85432,A,no,com.example.browser,37,browser search results
+86789,A,no,com.example.podcast,26,podcast episode list
+87654,A,no,com.example.books,40,e-reader bookshelf
+88321,A,no,com.example.recipe,33,recipe detail screen
+89012,A,no,com.example.ride,47,ride-hailing booking screen
+89543,A,no,com.example.hotel,51,hotel search results
+90124,A,no,com.example.airline,44,flight booking confirmation
+90678,A,no,com.example.crypto,38,crypto wallet overview
+11023,B,no,com.example.grocery,36,grocery cart screen
+12456,B,no,com.example.pharmacy,29,prescription order screen
+13789,B,no,com.example.insurance,42,insurance policy overview
+14321,B,no,com.example.education,35,online course dashboard
+15678,B,no,com.example.streaming,28,video streaming home screen
+16543,B,no,com.example.auction,47,auction listing with bids
+17890,B,no,com.example.realestate,53,property listing detail
+18234,B,no,com.example.automotive,31,car rental checkout
+19012,B,no,com.example.dating,24,dating app profile view
+19567,B,no,com.example.events,39,event ticket purchase
+22345,B,no,com.example.sports,33,sports scores and standings
+24678,B,no,com.example.jobs,45,job application form
+26901,B,no,com.example.pets,27,pet care product listing
+28234,B,no,com.example.kids,22,children's app home screen
+29567,B,no,com.example.fashion,49,clothing product detail
+31890,B,no,com.example.homegoods,41,home appliance listing
+34123,B,no,com.example.tools,18,hardware store category
+36456,B,no,com.example.beauty,37,cosmetics product page
+38789,B,no,com.example.sports2,30,sports equipment checkout
+41023,B,no,com.example.charity,25,donation confirmation screen

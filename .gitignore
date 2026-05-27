@@ -29,5 +29,9 @@ results/figures/*
 !data/splits/.gitkeep
 !results/checkpoints/.gitkeep
 !results/logs/.gitkeep
-!results/figures/.gitkeep
+!results/figures/.gitke
+
+# Local scripts
+scripts
+scripts/*
 
