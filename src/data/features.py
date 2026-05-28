@@ -169,11 +169,17 @@ def _save_embedding_cache(cache: dict, cache_path: str) -> None:
 _SENTENCE_MODEL = None
 
 
+def _sentence_model_device() -> str:
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+
 def _get_sentence_model():
     global _SENTENCE_MODEL
     if _SENTENCE_MODEL is None:
         from sentence_transformers import SentenceTransformer
-        _SENTENCE_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+        device = _sentence_model_device()
+        logger.info("Loading SentenceTransformer on %s", device)
+        _SENTENCE_MODEL = SentenceTransformer("all-MiniLM-L6-v2", device=device)
     return _SENTENCE_MODEL
 
 

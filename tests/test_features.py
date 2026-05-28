@@ -9,6 +9,7 @@ from src.data.features import (
     ALL_GROUPS,
     _build_text_string,
     _load_embedding_cache,
+    _sentence_model_device,
 )
 
 
@@ -96,3 +97,13 @@ def test_invalid_embedding_cache_is_ignored(tmp_path):
     cache_path = tmp_path / "text_embedding_cache.json"
     cache_path.write_text('{"bad": 1}{"extra": 2}', encoding="utf-8")
     assert _load_embedding_cache(str(cache_path)) == {}
+
+
+def test_sentence_model_device_uses_cuda_when_available(monkeypatch):
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    assert _sentence_model_device() == "cuda"
+
+
+def test_sentence_model_device_falls_back_to_cpu(monkeypatch):
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    assert _sentence_model_device() == "cpu"
