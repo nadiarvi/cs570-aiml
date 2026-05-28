@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -e
+conda create -n ui-gcn python=3.10 -y
+conda activate ui-gcn
+conda install pytorch torchvision pytorch-cuda=12.1 -c pytorch -c nvidia -y
+pip install sentence-transformers scikit-learn tqdm pandas matplotlib seaborn datasets Pillow google-generativeai python-dotenv
+python -c "import torch; print('GPU available:', torch.cuda.is_available())"

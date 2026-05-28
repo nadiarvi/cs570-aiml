@@ -1,0 +1,12 @@
+torch
+torchvision
+sentence-transformers
+scikit-learn
+tqdm
+pandas
+matplotlib
+seaborn
+datasets
+Pillow
+google-generativeai
+python-dotenv

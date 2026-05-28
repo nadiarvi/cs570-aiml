@@ -1,0 +1,17 @@
+{
+  "model_type": "gcn",
+  "in_dim": 420,
+  "hidden_dim": 256,
+  "num_layers": 2,
+  "dropout": 0.3,
+  "lr": 1e-3,
+  "weight_decay": 1e-4,
+  "epochs": 100,
+  "patience": 15,
+  "batch_size": 32,
+  "include_sibling_edges": true,
+  "feature_groups": null,
+  "label_source": "heuristic",
+  "device": "cuda",
+  "save_dir": "results/checkpoints/gcn_2l_all"
+}
