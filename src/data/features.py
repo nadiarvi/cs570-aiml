@@ -129,7 +129,13 @@ def _build_text_string(node: dict) -> str:
     """Concatenate non-empty text and content-desc."""
     parts = []
     for key in ("text", "content-desc"):
-        val = node.get(key, "") or ""
+        raw_val = node.get(key, "")
+        if isinstance(raw_val, list):
+            val = " ".join(str(v).strip() for v in raw_val if v is not None)
+        elif raw_val is None:
+            val = ""
+        else:
+            val = str(raw_val)
         val = val.strip()
         if val:
             parts.append(val)

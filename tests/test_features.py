@@ -7,6 +7,7 @@ from src.data.features import (
     extract_features,
     VISUAL_DIM, STRUCTURAL_DIM, TYPE_DIM, TEXT_DIM,
     ALL_GROUPS,
+    _build_text_string,
 )
 
 
@@ -80,3 +81,11 @@ def test_feature_dtype():
     flat = flatten_hierarchy(_simple_tree())
     features, slices = extract_features(flat, feature_groups=["visual", "structural"])
     assert features.dtype == torch.float32
+
+
+def test_text_fields_accept_non_string_values():
+    node = {
+        "text": ["Save", "now"],
+        "content-desc": None,
+    }
+    assert _build_text_string(node) == "Save now"
