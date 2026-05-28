@@ -19,6 +19,7 @@ import os
 import traceback
 
 import torch
+from tqdm import tqdm
 
 from src.data.rico_loader import load_hierarchy, flatten_hierarchy, get_app_id
 from src.data.features import extract_features
@@ -137,9 +138,24 @@ def preprocess(
 
     if workers > 1:
         with mp.Pool(workers) as pool:
-            results = pool.map(_process_one, tasks)
+            results = list(
+                tqdm(
+                    pool.imap_unordered(_process_one, tasks),
+                    total=len(tasks),
+                    desc="Preprocessing screens",
+                    unit="screen",
+                )
+            )
     else:
-        results = [_process_one(t) for t in tasks]
+        results = [
+            _process_one(t)
+            for t in tqdm(
+                tasks,
+                total=len(tasks),
+                desc="Preprocessing screens",
+                unit="screen",
+            )
+        ]
 
     successes = [r for r in results if r is not None]
     failures = len(results) - len(successes)

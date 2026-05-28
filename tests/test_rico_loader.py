@@ -137,3 +137,27 @@ def test_single_node():
     assert flat.ancestor_indices[0] == []
     assert flat.containment_edges == []
     assert flat.sibling_edges == []
+
+
+def test_none_root_returns_empty_hierarchy():
+    flat = flatten_hierarchy(None)
+    assert isinstance(flat, FlattenedHierarchy)
+    assert flat.nodes == []
+    assert flat.containment_edges == []
+    assert flat.sibling_edges == []
+    assert flat.parent_index == []
+    assert flat.ancestor_indices == []
+
+
+def test_none_children_are_skipped():
+    tree = {
+        "class": "android.widget.FrameLayout",
+        "children": [
+            None,
+            {"class": "android.widget.TextView", "text": "hi", "children": []},
+        ],
+    }
+    flat = flatten_hierarchy(tree)
+    assert len(flat.nodes) == 2
+    assert flat.nodes[0]["child_count"] == 1
+    assert flat.nodes[1]["text"] == "hi"

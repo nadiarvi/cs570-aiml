@@ -4,9 +4,12 @@ Node traversal uses DFS pre-order, giving stable node_id assignments.
 """
 
 import json
+import logging
 import os
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -30,7 +33,24 @@ def load_hierarchy(json_path: str) -> dict:
     return data
 
 
-def flatten_hierarchy(root: dict) -> FlattenedHierarchy:
+def _empty_hierarchy() -> FlattenedHierarchy:
+    return FlattenedHierarchy(
+        nodes=[],
+        containment_edges=[],
+        sibling_edges=[],
+        parent_index=[],
+        ancestor_indices=[],
+    )
+
+
+def _valid_children(node: dict) -> list[dict]:
+    children = node.get("children") or []
+    if not isinstance(children, list):
+        return []
+    return [child for child in children if isinstance(child, dict)]
+
+
+def flatten_hierarchy(root: dict | None) -> FlattenedHierarchy:
     """
     Flatten a Rico hierarchy into stable node records and graph structure.
     Uses DFS pre-order traversal for deterministic node_id assignment.
@@ -42,6 +62,10 @@ def flatten_hierarchy(root: dict) -> FlattenedHierarchy:
       - parent_index: parent index for each node, None for root
       - ancestor_indices: root-to-parent index chain for each node
     """
+    if not isinstance(root, dict):
+        logger.warning("Skipping hierarchy with non-dict root: %r", type(root).__name__)
+        return _empty_hierarchy()
+
     nodes: list[dict] = []
     containment_edges: list[tuple[int, int]] = []
     sibling_edges: list[tuple[int, int]] = []
@@ -55,9 +79,12 @@ def flatten_hierarchy(root: dict) -> FlattenedHierarchy:
     while stack:
         node, par_idx, ancestors, depth = stack.pop()
 
+        if not isinstance(node, dict):
+            logger.debug("Skipping non-dict hierarchy node: %r", type(node).__name__)
+            continue
+
         node_idx = len(nodes)
-        children = node.get("children") or []
-        sibling_count = len(children) - 1  # siblings of this node = parent's children - 1
+        children = _valid_children(node)
 
         node_record = {k: v for k, v in node.items() if k != "children"}
         node_record["node_id"] = node_idx
