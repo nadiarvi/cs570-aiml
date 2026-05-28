@@ -233,7 +233,101 @@ python -m src.train \
   --resume_checkpoint_path results/checkpoints/gcn_2l_all_contextual/latest_checkpoint.pt
 ```
 
-## 6. Run the Ablation Matrix
+## 6. Run Hyperparameter Optimization
+
+The first GCN and MLP runs are baseline configurations, not optimized models.
+Run a small search before deciding whether graph structure helps.
+
+The default search trains a curated set of MLP and GCN configurations:
+
+```bash
+python -m src.hyperparameter_search \
+  --base_config experiments/configs/ablation_base.json \
+  --out_csv results/hparam_search_results.csv
+```
+
+The search writes:
+
+```text
+results/hparam_search_results.csv
+experiments/generated_configs/hparam/<run_name>.json
+experiments/generated_configs/hparam/best_mlp.json
+experiments/generated_configs/hparam/best_gcn.json
+results/checkpoints/hparam/<run_name>/
+```
+
+If the search is interrupted, resume from saved per-run checkpoints:
+
+```bash
+python -m src.hyperparameter_search \
+  --base_config experiments/configs/ablation_base.json \
+  --out_csv results/hparam_search_results.csv \
+  --resume \
+  --skip_completed
+```
+
+For a very small smoke test of the search script:
+
+```bash
+python -m src.hyperparameter_search \
+  --base_config experiments/configs/ablation_base.json \
+  --out_csv results/hparam_search_smoke.csv \
+  --max_runs 2
+```
+
+For a larger grid, use:
+
+```bash
+python -m src.hyperparameter_search \
+  --base_config experiments/configs/ablation_base.json \
+  --out_csv results/hparam_search_full.csv \
+  --search_space full
+```
+
+The full grid is much slower. Use it only after the quick search runs
+successfully.
+
+### Inspect Search Results
+
+Print the best runs by heuristic validation Macro-F1:
+
+```bash
+python - <<'PY'
+import pandas as pd
+df = pd.read_csv("results/hparam_search_results.csv")
+cols = ["model_type", "name", "best_val_macro_f1", "best_epoch", "config_path"]
+print(df.sort_values("best_val_macro_f1", ascending=False)[cols].head(10))
+PY
+```
+
+Compare the best MLP against the best GCN. If the best tuned GCN still trails
+the best tuned MLP, graph propagation is not helping on the heuristic
+validation split.
+
+### Retrain the Best Configurations
+
+After the search finishes, retrain the best MLP and best GCN into clean
+checkpoint directories:
+
+```bash
+python -m src.train --config experiments/generated_configs/hparam/best_mlp.json
+python -m src.train --config experiments/generated_configs/hparam/best_gcn.json
+```
+
+If either retraining run is interrupted:
+
+```bash
+python -m src.train --config experiments/generated_configs/hparam/best_mlp.json --resume
+python -m src.train --config experiments/generated_configs/hparam/best_gcn.json --resume
+```
+
+Use TensorBoard to compare all training curves:
+
+```bash
+tensorboard --logdir results/checkpoints
+```
+
+## 7. Run the Ablation Matrix
 
 After preprocessing both `contextual` and `local_only` labels, run:
 
@@ -257,7 +351,7 @@ data/gold/gold_test_labels.csv
 
 If that file is missing, training can still run, but gold evaluation in the ablation script will fail.
 
-## 7. Recommended GPU Workflow
+## 8. Recommended GPU Workflow
 
 For a first GPU run:
 
@@ -271,11 +365,16 @@ python -m src.data.preprocess \
   --workers 8 \
   --embedding_cache_path data/processed/text_embedding_cache.json
 python -m src.train --config experiments/configs/gcn_2l_all_contextual.json
+python -m src.hyperparameter_search \
+  --base_config experiments/configs/ablation_base.json \
+  --out_csv results/hparam_search_results.csv \
+  --max_runs 2
 ```
 
-If that works, remove `--max_screens 1000`, clear the partial processed data if needed, and run the full dataset.
+If that works, remove `--max_screens 1000`, clear the partial processed data if
+needed, and run the full dataset plus the full quick hyperparameter search.
 
-## 8. Common Issues
+## 9. Common Issues
 
 ### `ModuleNotFoundError: No module named 'torch'`
 
@@ -333,7 +432,7 @@ Lower `batch_size` in the config file, for example:
 
 Then rerun training.
 
-## 9. Useful Checks
+## 10. Useful Checks
 
 Check current Git version:
 
