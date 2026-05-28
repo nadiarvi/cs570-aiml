@@ -5,5 +5,5 @@ conda create -n ui-gcn python=3.10 -y
 conda activate ui-gcn
 # Install PyTorch via pip to avoid conda channel conflicts (jpeg/libjpeg-turbo clash)
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-pip install sentence-transformers scikit-learn tqdm pandas matplotlib seaborn datasets Pillow google-genai python-dotenv
+pip install sentence-transformers scikit-learn tqdm pandas matplotlib seaborn datasets Pillow python-dotenv
 python -c "import torch; print('GPU available:', torch.cuda.is_available())"

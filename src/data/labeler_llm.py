@@ -1,32 +1,33 @@
-import os
 import json
 import hashlib
-import time
 from pathlib import Path
+
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from tqdm import tqdm
 
-from dotenv import load_dotenv
-
-load_dotenv()
-_api_keys = [k.strip() for k in os.getenv("GEMINI_API_KEYS", "").split(",") if k.strip()]
-_current_key_idx = 0
-
 CACHE_PATH = Path("data/llm_label_cache.json")
-RATE_LIMIT_DELAY = 4.1  # seconds — stays under 15 RPM
+MODEL_NAME = "Qwen/Qwen2.5-3B-Instruct"
+BATCH_SIZE = 32  # nodes per GPU batch
+
+_model = None
+_tokenizer = None
 
 
-def _get_client():
-    from google import genai
-    return genai.Client(api_key=_api_keys[_current_key_idx])
-
-
-def rotate_key() -> bool:
-    global _current_key_idx
-    if _current_key_idx + 1 < len(_api_keys):
-        _current_key_idx += 1
-        print(f"Rotated to key {_current_key_idx + 1}/{len(_api_keys)}")
-        return True
-    return False
+def _load_model():
+    global _model, _tokenizer
+    if _model is not None:
+        return _model, _tokenizer
+    print(f"Loading {MODEL_NAME} (first call only) ...")
+    _tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, padding_side="left")
+    if _tokenizer.pad_token is None:
+        _tokenizer.pad_token = _tokenizer.eos_token
+    _model = AutoModelForCausalLM.from_pretrained(
+        MODEL_NAME, torch_dtype=torch.float16
+    ).to("cuda")
+    _model.eval()
+    print("Model ready.")
+    return _model, _tokenizer
 
 
 def load_cache() -> dict:
@@ -68,44 +69,97 @@ def build_node_prompt(node: dict, ancestors: list) -> str:
     )
 
 
-def get_llm_label(node: dict, ancestors: list, cache: dict, retries: int = 3) -> int:
-    prompt = build_node_prompt(node, ancestors)
-    key = hashlib.sha256(prompt.encode()).hexdigest()
-    if key in cache:
-        return cache[key]
-
-    from google.genai import types
-
-    for attempt in range(retries):
-        try:
-            time.sleep(RATE_LIMIT_DELAY)
-            client = _get_client()
-            response = client.models.generate_content(
-                model="gemini-1.5-flash",
-                contents=SYSTEM_PROMPT + "\n\n" + prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.0,
-                    max_output_tokens=64,
-                ),
-            )
-            label = int(json.loads(response.text.strip())["label"])
-            assert label in (0, 1, 2)
-            cache[key] = label
-            save_cache(cache)
-            return label
-        except Exception as e:
-            err = str(e).lower()
-            if "quota" in err or "resource_exhausted" in err or "429" in err:
-                if rotate_key():
-                    continue
-                save_cache(cache)
-                raise RuntimeError("All API keys exhausted. Resume tomorrow.")
-            time.sleep(2 ** attempt * RATE_LIMIT_DELAY)
+def _parse_label(text: str) -> int:
+    """Extract 0/1/2 from model output. Returns -1 if parsing fails."""
+    text = text.strip()
+    try:
+        start = text.find("{")
+        end = text.rfind("}") + 1
+        if start >= 0 and end > start:
+            label = int(json.loads(text[start:end])["label"])
+            if label in (0, 1, 2):
+                return label
+    except Exception:
+        pass
+    # Fallback: first digit found
+    for ch in text:
+        if ch in ("0", "1", "2"):
+            return int(ch)
     return -1
 
 
-def label_nodes_llm(nodes: list, cache: dict) -> list:
+def _run_batch(prompts: list, model, tokenizer) -> list:
+    texts = []
+    for prompt in prompts:
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user",   "content": prompt},
+        ]
+        texts.append(
+            tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+        )
+
+    inputs = tokenizer(
+        texts,
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        max_length=512,
+    ).to("cuda")
+
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=64,
+            do_sample=False,
+            pad_token_id=tokenizer.eos_token_id,
+        )
+
+    input_len = inputs["input_ids"].shape[1]
     return [
-        get_llm_label(n, n.get("ancestors", []), cache)
-        for n in tqdm(nodes, desc="LLM labeling", leave=False)
+        _parse_label(tokenizer.decode(out[input_len:], skip_special_tokens=True))
+        for out in outputs
     ]
+
+
+def label_nodes_llm(nodes: list, cache: dict) -> list:
+    model, tokenizer = _load_model()
+
+    # Split into cached and uncached
+    all_prompts, all_keys = [], []
+    cached_labels = {}
+    uncached_positions = []
+
+    for i, node in enumerate(nodes):
+        prompt = build_node_prompt(node, node.get("ancestors", []))
+        key = hashlib.sha256(prompt.encode()).hexdigest()
+        if key in cache:
+            cached_labels[i] = cache[key]
+        else:
+            uncached_positions.append(i)
+            all_prompts.append(prompt)
+            all_keys.append(key)
+
+    # Batched GPU inference for uncached nodes
+    new_labels = []
+    for i in range(0, len(all_prompts), BATCH_SIZE):
+        batch = all_prompts[i : i + BATCH_SIZE]
+        new_labels.extend(_run_batch(batch, model, tokenizer))
+
+    # Update cache
+    for key, label in zip(all_keys, new_labels):
+        cache[key] = label
+    if new_labels:
+        save_cache(cache)
+
+    # Reassemble in original order
+    new_iter = iter(new_labels)
+    results = []
+    for i in range(len(nodes)):
+        if i in cached_labels:
+            results.append(cached_labels[i])
+        else:
+            results.append(next(new_iter, -1))
+    return results

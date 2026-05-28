@@ -8,5 +8,5 @@ matplotlib
 seaborn
 datasets
 Pillow
-google-genai
+google-genai  # optional: only needed if using Gemini instead of local model
 python-dotenv
