@@ -8,6 +8,7 @@ from src.data.features import (
     VISUAL_DIM, STRUCTURAL_DIM, TYPE_DIM, TEXT_DIM,
     ALL_GROUPS,
     _build_text_string,
+    _load_embedding_cache,
 )
 
 
@@ -89,3 +90,9 @@ def test_text_fields_accept_non_string_values():
         "content-desc": None,
     }
     assert _build_text_string(node) == "Save now"
+
+
+def test_invalid_embedding_cache_is_ignored(tmp_path):
+    cache_path = tmp_path / "text_embedding_cache.json"
+    cache_path.write_text('{"bad": 1}{"extra": 2}', encoding="utf-8")
+    assert _load_embedding_cache(str(cache_path)) == {}

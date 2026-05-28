@@ -6,12 +6,14 @@ Feature groups: visual (12), structural (4), type (20), text (384) = 420 total.
 import os
 import hashlib
 import json
-from typing import Optional
+import logging
 
 import numpy as np
 import torch
 
 from src.data.rico_loader import FlattenedHierarchy
+
+logger = logging.getLogger(__name__)
 
 # Fixed widget class vocabulary (20 classes)
 WIDGET_CLASSES = [
@@ -148,15 +150,20 @@ def _text_cache_key(text: str) -> str:
 
 def _load_embedding_cache(cache_path: str) -> dict:
     if cache_path and os.path.exists(cache_path):
-        with open(cache_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            logger.warning("Ignoring invalid embedding cache JSON: %s", cache_path)
     return {}
 
 
 def _save_embedding_cache(cache: dict, cache_path: str) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(cache_path)), exist_ok=True)
-    with open(cache_path, "w", encoding="utf-8") as f:
+    tmp_path = f"{cache_path}.{os.getpid()}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(cache, f)
+    os.replace(tmp_path, cache_path)
 
 
 _SENTENCE_MODEL = None
