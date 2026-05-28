@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -e
+source "$HOME/miniconda3/etc/profile.d/conda.sh"
 conda create -n ui-gcn python=3.10 -y
 conda activate ui-gcn
 conda install pytorch torchvision pytorch-cuda=12.1 -c pytorch -c nvidia -y
