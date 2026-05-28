@@ -20,3 +20,35 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Download Rico locally
+
+The training pipeline expects Rico view hierarchy JSON files under
+`data/raw/<app_package>/<screen_id>.json`. Download and prepare them with:
+
+```bash
+python -m src.data.download_rico --out_dir data/raw
+```
+
+For a smaller smoke-test subset before a full run:
+
+```bash
+python -m src.data.download_rico --out_dir data/raw --max_screens 1000
+```
+
+Then preprocess:
+
+```bash
+python -m src.data.preprocess \
+  --rico_dir data/raw \
+  --out_dir data/processed \
+  --split_path data/splits/split_seed42.json \
+  --label_mode contextual \
+  --workers 8 \
+  --embedding_cache_path data/processed/text_embedding_cache.json
+```
+
+Train on GPU:
+
+```bash
+python -m src.train --config experiments/configs/gcn_2l_all_contextual.json
+```

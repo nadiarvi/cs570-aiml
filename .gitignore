@@ -19,6 +19,7 @@ env/
 data/raw/*
 data/processed/*
 data/splits/*
+data/downloads/*
 results/checkpoints/*
 results/logs/*
 results/figures/*
@@ -34,4 +35,3 @@ results/figures/*
 # Local scripts
 scripts
 scripts/*
-
