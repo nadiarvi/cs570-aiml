@@ -15,10 +15,9 @@ CACHE_PATH = Path("data/llm_label_cache.json")
 RATE_LIMIT_DELAY = 4.1  # seconds — stays under 15 RPM
 
 
-def get_model():
-    import google.generativeai as genai
-    genai.configure(api_key=_api_keys[_current_key_idx])
-    return genai.GenerativeModel("gemini-1.5-flash")
+def _get_client():
+    from google import genai
+    return genai.Client(api_key=_api_keys[_current_key_idx])
 
 
 def rotate_key() -> bool:
@@ -74,12 +73,20 @@ def get_llm_label(node: dict, ancestors: list, cache: dict, retries: int = 3) ->
     key = hashlib.sha256(prompt.encode()).hexdigest()
     if key in cache:
         return cache[key]
+
+    from google.genai import types
+
     for attempt in range(retries):
         try:
             time.sleep(RATE_LIMIT_DELAY)
-            response = get_model().generate_content(
-                [{"role": "user", "parts": [SYSTEM_PROMPT + "\n\n" + prompt]}],
-                generation_config={"temperature": 0.0, "max_output_tokens": 64},
+            client = _get_client()
+            response = client.models.generate_content(
+                model="gemini-1.5-flash",
+                contents=SYSTEM_PROMPT + "\n\n" + prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.0,
+                    max_output_tokens=64,
+                ),
             )
             label = int(json.loads(response.text.strip())["label"])
             assert label in (0, 1, 2)

@@ -8,5 +8,5 @@ matplotlib
 seaborn
 datasets
 Pillow
-google-generativeai
+google-genai
 python-dotenv
