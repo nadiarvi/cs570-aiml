@@ -10,6 +10,7 @@ import os
 import random
 import subprocess
 import time
+import glob
 
 import numpy as np
 import torch
@@ -23,6 +24,19 @@ from src.models.gcn import GCN
 from src.models.gat import GAT
 
 logger = logging.getLogger(__name__)
+
+
+def collect_graph_paths(pattern: str) -> list[str]:
+    """Return sorted regular graph files matching a glob pattern."""
+    paths = sorted(glob.glob(pattern, recursive=True))
+    skipped_dirs = [p for p in paths if os.path.isdir(p)]
+    if skipped_dirs:
+        logger.warning(
+            "Ignoring %d directory path(s) matched by graph glob, e.g. %s",
+            len(skipped_dirs),
+            skipped_dirs[0],
+        )
+    return [p for p in paths if os.path.isfile(p)]
 
 
 def _seed_everything(seed: int):
@@ -107,18 +121,17 @@ def train(config: dict) -> dict:
     device = torch.device(config.get("device", "cuda" if torch.cuda.is_available() else "cpu"))
     logger.info("Training %s on %s", config.get("name", "run"), device)
 
-    import glob
     label_mode = config.get("label_mode", "contextual")
     processed_dir = config["processed_dir"]
     include_sibling_edges = config.get("include_sibling_edges", True)
     feature_groups = config.get("feature_groups", None)
 
-    train_pt_paths = sorted(glob.glob(
-        os.path.join(processed_dir, "train", label_mode, "**", "*.pt"), recursive=True
-    ))
-    val_pt_paths = sorted(glob.glob(
-        os.path.join(processed_dir, "val", label_mode, "**", "*.pt"), recursive=True
-    ))
+    train_pt_paths = collect_graph_paths(
+        os.path.join(processed_dir, "train", label_mode, "**", "*.pt")
+    )
+    val_pt_paths = collect_graph_paths(
+        os.path.join(processed_dir, "val", label_mode, "**", "*.pt")
+    )
 
     if not train_pt_paths:
         raise FileNotFoundError(

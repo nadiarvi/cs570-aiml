@@ -5,7 +5,6 @@ Writes results/ablation_results.csv.
 """
 
 import csv
-import glob
 import json
 import logging
 import os
@@ -19,7 +18,7 @@ from src.evaluate import evaluate
 from src.models.mlp import MLP
 from src.models.gcn import GCN
 from src.models.gat import GAT
-from src.train import train, _build_model
+from src.train import train, _build_model, collect_graph_paths
 
 logger = logging.getLogger(__name__)
 
@@ -77,11 +76,11 @@ def _load_gold_graphs(
     pt_paths = []
     for app_id in gold_app_ids:
         pattern = os.path.join(processed_dir, "**", label_mode, app_id, "*.pt")
-        pt_paths.extend(glob.glob(pattern, recursive=True))
+        pt_paths.extend(collect_graph_paths(pattern))
         # Also check train/val dirs for gold apps that were processed
         for partition in ("train", "val", "other"):
             p = os.path.join(processed_dir, partition, label_mode, app_id, "*.pt")
-            pt_paths.extend(glob.glob(p))
+            pt_paths.extend(collect_graph_paths(p))
 
     pt_paths = sorted(set(pt_paths))
     if not pt_paths:

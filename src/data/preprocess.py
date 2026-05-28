@@ -90,8 +90,11 @@ def _process_one(args: tuple) -> str | None:
         screen_id = os.path.splitext(os.path.basename(json_path))[0]
         app_id = get_app_id(json_path)
         out_path = _output_path(json_path, out_dir, label_mode, split)
-        if os.path.exists(out_path):
+        if os.path.isfile(out_path):
             return out_path
+        if os.path.isdir(out_path):
+            logger.warning("Expected graph output path is a directory, skipping: %s", out_path)
+            return None
 
         root = load_hierarchy(json_path)
         flattened = flatten_hierarchy(root)
@@ -173,7 +176,7 @@ def preprocess(
 
     pending_json_paths = [
         p for p in json_paths
-        if not os.path.exists(_output_path(p, out_dir, label_mode, split))
+        if not os.path.isfile(_output_path(p, out_dir, label_mode, split))
     ]
 
     if embedding_cache_path and precompute_embeddings and pending_json_paths:
@@ -217,8 +220,8 @@ def preprocess(
     logger.info("Processed %d screens, %d failures", len(successes), failures)
 
     # Categorize outputs
-    train_pt_paths = [p for p in successes if "/train/" in p]
-    val_pt_paths = [p for p in successes if "/val/" in p]
+    train_pt_paths = [p for p in successes if os.path.isfile(p) and "/train/" in p]
+    val_pt_paths = [p for p in successes if os.path.isfile(p) and "/val/" in p]
 
     return {
         "train_paths": sorted(train_pt_paths),
