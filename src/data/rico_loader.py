@@ -79,14 +79,28 @@ def flatten_hierarchy(root: dict) -> tuple:
 
 
 def get_app_id(json_path: str) -> str:
-    """Extract app package name from path — used for app-level splits."""
+    """Extract app package name — used for app-level splits.
+    Tries path first, then reads the package field from inside the JSON.
+    """
     path = Path(json_path)
     parent = path.parent.name
-    if parent not in ("raw", ".", ""):
+    if parent not in ("raw", ".", "", "unknown_app"):
         return parent
-    # Fall back: use filename prefix (before last underscore or digit)
-    name = path.stem
-    parts = name.split("_")
-    if len(parts) > 1:
-        return "_".join(parts[:-1])
-    return name
+
+    # Read package name from inside the JSON (Rico always stores it there)
+    try:
+        with open(json_path) as f:
+            data = json.load(f)
+        pkg = (
+            data.get("package")
+            or data.get("app_package_name")
+            or data.get("packageName")
+            or (data.get("activity") or {}).get("package")
+        )
+        if pkg:
+            return str(pkg)
+    except Exception:
+        pass
+
+    # Last resort: use the filename stem
+    return path.stem
