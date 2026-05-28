@@ -38,7 +38,7 @@ def evaluate(model, loader, device) -> dict:
     preds = torch.cat(all_preds).numpy()
     labels = torch.cat(all_labels).numpy()
 
-    macro_f1 = f1_score(labels, preds, average="macro", zero_division=0)
+    macro_f1 = f1_score(labels, preds, average="macro", labels=[0, 1, 2], zero_division=0)
     per_f1 = f1_score(labels, preds, average=None, labels=[0, 1, 2], zero_division=0)
     prec, rec, _, _ = precision_recall_fscore_support(
         labels, preds, labels=[0, 1, 2], zero_division=0

@@ -71,6 +71,7 @@ def build_node_prompt(node: dict, ancestors: list) -> str:
 
 def _parse_label(text: str) -> int:
     """Extract 0/1/2 from model output. Returns -1 if parsing fails."""
+    import re
     text = text.strip()
     try:
         start = text.find("{")
@@ -81,10 +82,12 @@ def _parse_label(text: str) -> int:
                 return label
     except Exception:
         pass
-    # Fallback: first digit found
-    for ch in text:
-        if ch in ("0", "1", "2"):
-            return int(ch)
+    # Fallback: look for "label": N pattern in malformed JSON
+    match = re.search(r'"label"\s*:\s*([012])', text)
+    if match:
+        return int(match.group(1))
+    # Do NOT scan for first digit — "0" appears in the system prompt text
+    # ("0 = canonical") and would bias all failed parses to canonical.
     return -1
 
 
