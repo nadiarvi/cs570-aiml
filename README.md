@@ -67,3 +67,24 @@ Train on GPU:
 ```bash
 python -m src.train --config experiments/configs/gcn_2l_all_contextual.json
 ```
+
+Training shows `tqdm` progress bars in the terminal and writes TensorBoard
+metrics under the run checkpoint directory. To monitor loss, validation F1, and
+validation accuracy in a browser:
+
+```bash
+tensorboard --logdir results/checkpoints
+```
+
+Then open the local TensorBoard URL printed by that command. On a remote GPU
+server, forward port `6006` with SSH, for example:
+
+```bash
+ssh -L 6006:localhost:6006 ubuntu@<server>
+```
+
+Interrupted training can resume from the latest completed epoch:
+
+```bash
+python -m src.train --config experiments/configs/gcn_2l_all_contextual.json --resume
+```

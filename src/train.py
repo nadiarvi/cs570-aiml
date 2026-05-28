@@ -17,6 +17,12 @@ import torch
 import torch.nn as nn
 from sklearn.metrics import f1_score
 from torch.utils.data import DataLoader
+from tqdm.auto import tqdm
+
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except ImportError:
+    SummaryWriter = None
 
 from src.data.dataset import RicoGraphDataset, collate_graphs
 from src.models.mlp import MLP
@@ -76,10 +82,100 @@ def _build_model(config: dict, in_dim: int) -> nn.Module:
         raise ValueError(f"Unknown model_type: {model_type}")
 
 
-def _compute_class_weights(dataset: RicoGraphDataset, num_classes: int = 3) -> torch.Tensor:
+def _make_summary_writer(config: dict, save_dir: str, purge_step: int | None = None):
+    if not config.get("enable_tensorboard", True):
+        return None, None
+    log_dir = config.get("tensorboard_log_dir", os.path.join(save_dir, "tensorboard"))
+    if SummaryWriter is None:
+        logger.warning(
+            "TensorBoard logging disabled because the tensorboard package is not installed."
+        )
+        return None, log_dir
+    return SummaryWriter(log_dir=log_dir, purge_step=purge_step), log_dir
+
+
+def _rng_state() -> dict:
+    state = {
+        "python": random.getstate(),
+        "numpy": np.random.get_state(),
+        "torch": torch.random.get_rng_state(),
+    }
+    if torch.cuda.is_available():
+        state["torch_cuda"] = torch.cuda.get_rng_state_all()
+    return state
+
+
+def _restore_rng_state(state: dict | None) -> None:
+    if not state:
+        return
+    random.setstate(state["python"])
+    np.random.set_state(state["numpy"])
+    torch.random.set_rng_state(state["torch"])
+    if torch.cuda.is_available() and "torch_cuda" in state:
+        torch.cuda.set_rng_state_all(state["torch_cuda"])
+
+
+def _save_training_checkpoint(
+    path: str,
+    epoch: int,
+    model: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    best_val_f1: float,
+    best_epoch: int,
+    patience_counter: int,
+    train_loss_history: list[float],
+    val_f1_history: list[float],
+    config: dict,
+    in_dim: int,
+    checkpoint_path: str,
+) -> None:
+    torch.save(
+        {
+            "epoch": epoch,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "best_val_f1": best_val_f1,
+            "best_epoch": best_epoch,
+            "patience_counter": patience_counter,
+            "train_loss_history": train_loss_history,
+            "val_f1_history": val_f1_history,
+            "config": config,
+            "in_dim": in_dim,
+            "checkpoint_path": checkpoint_path,
+            "rng_state": _rng_state(),
+        },
+        path,
+    )
+
+
+def _load_training_checkpoint(
+    path: str,
+    model: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+) -> dict:
+    checkpoint = torch.load(path, map_location=device, weights_only=False)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    _restore_rng_state(checkpoint.get("rng_state"))
+    return checkpoint
+
+
+def _compute_class_weights(
+    dataset: RicoGraphDataset,
+    num_classes: int = 3,
+    show_progress: bool = False,
+) -> torch.Tensor:
     """Compute inverse-frequency weights from training labels only."""
     counts = torch.zeros(num_classes)
-    for graph in dataset:
+    iterator = tqdm(
+        dataset,
+        desc="Computing class weights",
+        unit="graph",
+        dynamic_ncols=True,
+        disable=not show_progress,
+    )
+    for graph in iterator:
         y = graph["y"]
         for c in range(num_classes):
             counts[c] += (y == c).sum()
@@ -88,12 +184,26 @@ def _compute_class_weights(dataset: RicoGraphDataset, num_classes: int = 3) -> t
     return weights
 
 
-def _eval_split(model, loader, device, num_classes: int = 3) -> tuple[float, float]:
+def _eval_split(
+    model,
+    loader,
+    device,
+    num_classes: int = 3,
+    show_progress: bool = False,
+) -> tuple[float, float]:
     """Return (macro_f1, accuracy) on a validation split."""
     model.eval()
     all_preds, all_labels = [], []
+    iterator = tqdm(
+        loader,
+        desc="Validation",
+        unit="batch",
+        leave=False,
+        dynamic_ncols=True,
+        disable=not show_progress,
+    )
     with torch.no_grad():
-        for batch in loader:
+        for batch in iterator:
             x = batch["x"].to(device)
             y = batch["y"].to(device)
             ei = batch["edge_index"].to(device)
@@ -160,7 +270,7 @@ def train(config: dict) -> dict:
     model = _build_model(config, in_dim).to(device)
 
     # Class weights from training labels
-    class_weights = _compute_class_weights(train_dataset)
+    class_weights = _compute_class_weights(train_dataset, show_progress=True)
     class_weights = class_weights.to(device)
     logger.info("Class weights: %s", class_weights.cpu().tolist())
 
@@ -175,20 +285,79 @@ def train(config: dict) -> dict:
     patience = config.get("patience", 15)
     save_dir = config.get("save_dir", "results/checkpoints/run")
     os.makedirs(save_dir, exist_ok=True)
+    checkpoint_path = os.path.join(save_dir, "best_model.pt")
+    latest_checkpoint_path = config.get(
+        "resume_checkpoint_path",
+        os.path.join(save_dir, "latest_checkpoint.pt"),
+    )
 
     best_val_f1 = -1.0
     best_epoch = 0
     patience_counter = 0
     train_loss_history, val_f1_history = [], []
+    start_epoch = 1
+    resumed_from_checkpoint = False
+
+    if config.get("resume", False):
+        if os.path.isfile(latest_checkpoint_path):
+            checkpoint = _load_training_checkpoint(
+                latest_checkpoint_path,
+                model,
+                optimizer,
+                device,
+            )
+            start_epoch = int(checkpoint["epoch"]) + 1
+            best_val_f1 = float(checkpoint.get("best_val_f1", best_val_f1))
+            best_epoch = int(checkpoint.get("best_epoch", best_epoch))
+            patience_counter = int(checkpoint.get("patience_counter", patience_counter))
+            train_loss_history = list(checkpoint.get("train_loss_history", []))
+            val_f1_history = list(checkpoint.get("val_f1_history", []))
+            checkpoint_path = checkpoint.get("checkpoint_path", checkpoint_path)
+            resumed_from_checkpoint = True
+            logger.info(
+                "Resumed from %s at epoch %d; next epoch is %d",
+                latest_checkpoint_path,
+                checkpoint["epoch"],
+                start_epoch,
+            )
+        else:
+            logger.warning(
+                "Resume requested, but no checkpoint found at %s. Starting from scratch.",
+                latest_checkpoint_path,
+            )
+
+    writer, tensorboard_log_dir = _make_summary_writer(
+        config,
+        save_dir,
+        purge_step=start_epoch if resumed_from_checkpoint else None,
+    )
+    if tensorboard_log_dir:
+        logger.info("TensorBoard logs: %s", tensorboard_log_dir)
 
     start_time = time.time()
+    last_epoch = start_epoch - 1
 
-    for epoch in range(1, epochs + 1):
+    epoch_iterator = tqdm(
+        range(start_epoch, epochs + 1),
+        desc=f"Training {config.get('name', 'run')}",
+        unit="epoch",
+        dynamic_ncols=True,
+    )
+
+    for epoch in epoch_iterator:
+        last_epoch = epoch
         model.train()
         epoch_loss = 0.0
         n_batches = 0
 
-        for batch in train_loader:
+        train_iterator = tqdm(
+            train_loader,
+            desc=f"Epoch {epoch}/{epochs}",
+            unit="batch",
+            leave=False,
+            dynamic_ncols=True,
+        )
+        for batch in train_iterator:
             x = batch["x"].to(device)
             y = batch["y"].to(device)
             ei = batch["edge_index"].to(device)
@@ -202,18 +371,12 @@ def train(config: dict) -> dict:
 
             epoch_loss += loss.item()
             n_batches += 1
+            train_iterator.set_postfix(loss=f"{epoch_loss / n_batches:.4f}")
 
         avg_loss = epoch_loss / max(n_batches, 1)
-        val_f1, val_acc = _eval_split(model, val_loader, device)
+        val_f1, val_acc = _eval_split(model, val_loader, device, show_progress=True)
 
-        train_loss_history.append(avg_loss)
-        val_f1_history.append(val_f1)
-
-        logger.info(
-            "Epoch %d/%d  loss=%.4f  val_macro_f1=%.4f  val_acc=%.4f",
-            epoch, epochs, avg_loss, val_f1, val_acc,
-        )
-
+        should_stop = False
         if val_f1 > best_val_f1:
             best_val_f1 = val_f1
             best_epoch = epoch
@@ -223,10 +386,58 @@ def train(config: dict) -> dict:
         else:
             patience_counter += 1
             if patience_counter >= patience:
-                logger.info("Early stopping at epoch %d", epoch)
-                break
+                should_stop = True
+
+        train_loss_history.append(avg_loss)
+        val_f1_history.append(val_f1)
+
+        if writer is not None:
+            writer.add_scalar("loss/train", avg_loss, epoch)
+            writer.add_scalar("f1/val_macro", val_f1, epoch)
+            writer.add_scalar("accuracy/val", val_acc, epoch)
+            writer.add_scalar("learning_rate", optimizer.param_groups[0]["lr"], epoch)
+            writer.add_scalar("early_stopping/patience_counter", patience_counter, epoch)
+
+        _save_training_checkpoint(
+            latest_checkpoint_path,
+            epoch,
+            model,
+            optimizer,
+            best_val_f1,
+            best_epoch,
+            patience_counter,
+            train_loss_history,
+            val_f1_history,
+            config,
+            in_dim,
+            checkpoint_path,
+        )
+
+        logger.info(
+            "Epoch %d/%d  loss=%.4f  val_macro_f1=%.4f  val_acc=%.4f",
+            epoch, epochs, avg_loss, val_f1, val_acc,
+        )
+        epoch_iterator.set_postfix(
+            loss=f"{avg_loss:.4f}",
+            val_f1=f"{val_f1:.4f}",
+            val_acc=f"{val_acc:.4f}",
+            best=f"{best_val_f1:.4f}",
+        )
+
+        if should_stop:
+            logger.info("Early stopping at epoch %d", epoch)
+            break
+
+    if start_epoch > epochs:
+        logger.info(
+            "Checkpoint is already at epoch %d, which is >= configured epochs=%d.",
+            start_epoch - 1,
+            epochs,
+        )
 
     elapsed = time.time() - start_time
+    if writer is not None:
+        writer.close()
 
     metadata = {
         "config": config,
@@ -234,15 +445,18 @@ def train(config: dict) -> dict:
         "in_dim": in_dim,
         "best_val_macro_f1": best_val_f1,
         "best_epoch": best_epoch,
-        "total_epochs": epoch,
+        "total_epochs": last_epoch,
         "class_weights": class_weights.cpu().tolist(),
         "checkpoint_path": checkpoint_path,
+        "latest_checkpoint_path": latest_checkpoint_path,
+        "resumed_from_checkpoint": resumed_from_checkpoint,
         "train_loss_history": train_loss_history,
         "val_f1_history": val_f1_history,
         "train_screens": len(train_pt_paths),
         "val_screens": len(val_pt_paths),
         "git_hash": _get_git_hash(),
         "elapsed_seconds": elapsed,
+        "tensorboard_log_dir": tensorboard_log_dir,
     }
 
     with open(os.path.join(save_dir, "run_metadata.json"), "w") as f:
@@ -264,7 +478,22 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from the latest full training checkpoint for this run.",
+    )
+    parser.add_argument(
+        "--resume_checkpoint_path",
+        default=None,
+        help="Optional path to a full training checkpoint to resume from.",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     cfg = load_config(args.config)
+    if args.resume:
+        cfg["resume"] = True
+    if args.resume_checkpoint_path:
+        cfg["resume"] = True
+        cfg["resume_checkpoint_path"] = args.resume_checkpoint_path
     train(cfg)

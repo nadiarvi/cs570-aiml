@@ -6,6 +6,6 @@ scikit-learn
 matplotlib
 seaborn
 tqdm
+tensorboard
 sentence-transformers
 Pillow
-

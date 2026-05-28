@@ -143,6 +143,95 @@ Each run saves:
 
 - `best_model.pt`
 - `run_metadata.json`
+- `latest_checkpoint.pt` for resuming interrupted training
+- `tensorboard/` event logs for browser-based metric monitoring
+
+Training now shows `tqdm` progress bars in the terminal for class-weight
+scanning, training batches, validation batches, and epoch-level metrics.
+
+To monitor training curves outside the terminal, use TensorBoard. Leave the
+training command running in one shell:
+
+```bash
+python -m src.train --config experiments/configs/gcn_2l_all_contextual.json
+```
+
+Then open a second shell on the same machine, activate the environment, and
+start TensorBoard from the project root:
+
+```bash
+source .venv/bin/activate
+tensorboard --logdir results/checkpoints
+```
+
+Open the URL printed by TensorBoard, usually:
+
+```text
+http://localhost:6006/
+```
+
+The dashboard will show per-run curves for:
+
+- training loss
+- validation Macro-F1
+- validation accuracy
+- learning rate
+- early-stopping patience counter
+
+If training is running on a remote GPU server, set up SSH port forwarding from
+your laptop before opening TensorBoard in the browser:
+
+```bash
+ssh -L 6006:localhost:6006 ubuntu@<server>
+```
+
+Inside that SSH session, go to the repo, activate the environment, and start
+TensorBoard:
+
+```bash
+cd cs570-aiml
+source .venv/bin/activate
+tensorboard --logdir results/checkpoints
+```
+
+Then open `http://localhost:6006/` in your laptop browser.
+
+### Resuming an Interrupted Run
+
+Training writes a full resume checkpoint after each completed epoch:
+
+```text
+results/checkpoints/<run_name>/latest_checkpoint.pt
+```
+
+If training stops or the SSH session disconnects, restart from the latest
+completed epoch with:
+
+```bash
+python -m src.train \
+  --config experiments/configs/gcn_2l_all_contextual.json \
+  --resume
+```
+
+Resume restores:
+
+- model weights
+- optimizer state
+- best validation Macro-F1
+- early-stopping patience counter
+- metric history
+- random number generator state
+
+Resume does not restart from the middle of a batch. If the process stops during
+epoch 12, it resumes from the last fully saved epoch, usually epoch 11.
+
+To resume from a specific checkpoint path:
+
+```bash
+python -m src.train \
+  --config experiments/configs/gcn_2l_all_contextual.json \
+  --resume_checkpoint_path results/checkpoints/gcn_2l_all_contextual/latest_checkpoint.pt
+```
 
 ## 6. Run the Ablation Matrix
 
@@ -224,6 +313,15 @@ find data/raw -name '*.json' | head
 ### Sentence-transformers download fails
 
 The preprocessing step needs the `all-MiniLM-L6-v2` model for text embeddings. Use a machine with internet for the first run, or pre-populate the Hugging Face cache on the GPU server.
+
+### `tensorboard: command not found`
+
+Activate the virtual environment and reinstall dependencies:
+
+```bash
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
 ### Out of memory during training
 
