@@ -12,7 +12,6 @@ class GATLayer(nn.Module):
         self.out_dim = out_dim
         self.dropout = dropout
 
-        # Per-head: W [in_dim, head_dim], a [2 * head_dim]
         self.W = nn.Parameter(torch.empty(num_heads, in_dim, self.head_dim))
         self.a = nn.Parameter(torch.empty(num_heads, 2 * self.head_dim))
         self.leaky_relu = nn.LeakyReLU(0.2)
@@ -24,36 +23,36 @@ class GATLayer(nn.Module):
 
     def forward(self, x, edge_index):
         N = x.size(0)
-        if edge_index.shape[1] == 0:
-            return torch.zeros(N, self.out_dim, device=x.device)
 
-        src, dst = edge_index  # [E]
+        # Self-loops: every node attends to itself; also prevents empty edge_index
+        self_loops = torch.arange(N, device=x.device).unsqueeze(0).expand(2, -1)
+        ei = torch.cat([edge_index, self_loops], dim=1)
+        src, dst = ei
 
         head_outputs = []
         for k in range(self.num_heads):
-            # Linear projection: [N, in_dim] × [in_dim, head_dim] → [N, head_dim]
-            h = x @ self.W[k]
+            h = x @ self.W[k]  # [N, head_dim]
 
-            # Attention scores: e_ij = LeakyReLU(a_k^T [h_i || h_j])
             h_cat = torch.cat([h[src], h[dst]], dim=-1)  # [E, 2*head_dim]
             e = self.leaky_relu(h_cat @ self.a[k])       # [E]
 
-            # Numerically-stable scatter softmax
-            max_e = torch.zeros(N, device=x.device)
-            max_e.scatter_reduce_(0, dst, e, reduce="amax", include_self=False)
-            e_stable = e - max_e[dst]
-            alpha_num = torch.exp(e_stable)              # [E]
-            alpha_sum = torch.zeros(N, device=x.device)
-            alpha_sum.scatter_add_(0, dst, alpha_num)
-            alpha = alpha_num / (alpha_sum[dst] + 1e-9)  # [E]
+            # Max per dst for numerical stability — no grad needed here
+            with torch.no_grad():
+                e_max = torch.zeros(N, device=x.device)
+                e_max.scatter_reduce_(0, dst, e, reduce="amax", include_self=True)
+            e_stable = e - e_max[dst]  # grad flows through e
+
+            exp_e = torch.exp(e_stable)  # [E]
+
+            # Out-of-place scatter_add preserves grad_fn through exp_e
+            exp_sum = torch.zeros(N, device=x.device).scatter_add(0, dst, exp_e)
+            alpha = exp_e / (exp_sum[dst] + 1e-9)  # [E]
             alpha = F.dropout(alpha, p=self.dropout, training=self.training)
 
-            # Weighted aggregation: for each dst, sum alpha * h_src
-            agg = torch.zeros(N, self.head_dim, device=x.device)
-            agg.scatter_add_(
-                0,
-                dst.unsqueeze(1).expand(-1, self.head_dim),
-                alpha.unsqueeze(1) * h[src],
+            # Out-of-place aggregation preserves grad_fn through weighted
+            weighted = alpha.unsqueeze(1) * h[src]  # [E, head_dim]
+            agg = torch.zeros(N, self.head_dim, device=x.device).scatter_add(
+                0, dst.unsqueeze(1).expand(-1, self.head_dim), weighted
             )
             head_outputs.append(agg)
 
@@ -76,10 +75,8 @@ class GAT(nn.Module):
         dims = [in_dim] + [hidden_dim] * (num_layers - 1) + [num_classes]
         self.layers = nn.ModuleList()
         for i in range(len(dims) - 1):
-            out = dims[i + 1]
             heads = num_heads if i < len(dims) - 2 else 1
-            # Ensure out_dim is divisible by heads; for last layer use 1 head
-            self.layers.append(GATLayer(dims[i], out, num_heads=heads, dropout=dropout))
+            self.layers.append(GATLayer(dims[i], dims[i + 1], num_heads=heads, dropout=dropout))
 
     def forward(self, x, edge_index):
         for i, layer in enumerate(self.layers):
