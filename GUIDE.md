@@ -26,19 +26,36 @@ Step 6: Generate all figures
 ## Prerequisites
 
 - GPU server with CUDA 12.1
-- conda installed
+- Python 3.10+ available on the server (`python3 --version` to check)
 - Git access to clone this repo
 - One or more free Gemini API keys (for Track B only): https://aistudio.google.com/app/apikey
 
 ---
 
-## Step 1 — Clone & Setup
+## Step 1 — Clone, Install Conda & Setup
 
 **On the GPU server:**
 
 ```bash
 git clone https://github.com/<your-org>/ui-modifiability.git
 cd ui-modifiability
+```
+
+If conda is not yet installed on the server, run the installer script first:
+
+```bash
+bash scripts/install_conda.sh
+source ~/.bashrc
+```
+
+Expected output at the end:
+```
+Conda 24.x.x is ready.
+```
+
+Then create the environment and install all dependencies:
+
+```bash
 bash scripts/setup.sh
 ```
 
@@ -47,7 +64,7 @@ Expected output at the end:
 GPU available: True
 ```
 
-If you see `False`, check your CUDA driver and PyTorch installation.
+If you see `False`, check your CUDA driver (`nvidia-smi`) and that PyTorch was installed with the matching CUDA version.
 
 ---
 
