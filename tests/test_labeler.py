@@ -76,6 +76,17 @@ def test_missing_fields_no_crash():
     assert result in (None, 0, 1, 2)
 
 
+def test_list_valued_text_fields_no_crash():
+    node = _node(
+        **{
+            "text": ["Click", "here"],
+            "content-desc": ["account", None, "details"],
+            "resource-id": ["com.example:id", "profile_button"],
+        }
+    )
+    assert assign_label(node, [], "local_only") == 0
+
+
 # ---- label_graph tests -------------------------------------------------------
 
 def test_label_graph_returns_minus_one_for_excluded():

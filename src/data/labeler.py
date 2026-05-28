@@ -66,20 +66,28 @@ _TEXT_CLASSES = {
 
 # ---- Helper functions --------------------------------------------------------
 
+def _as_text(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return " ".join(str(v).strip() for v in value if v is not None).strip()
+    return str(value).strip()
+
+
 def _get_text(node: dict) -> str:
-    return (node.get("text") or "").strip()
+    return _as_text(node.get("text"))
 
 
 def _get_content_desc(node: dict) -> str:
-    return (node.get("content-desc") or "").strip()
+    return _as_text(node.get("content-desc"))
 
 
 def _get_resource_id(node: dict) -> str:
-    return (node.get("resource-id") or "").strip()
+    return _as_text(node.get("resource-id"))
 
 
 def _get_class(node: dict) -> str:
-    return (node.get("class") or "").strip()
+    return _as_text(node.get("class"))
 
 
 def _is_leaf(node: dict) -> bool:
