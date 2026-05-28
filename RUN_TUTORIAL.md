@@ -91,6 +91,22 @@ python -m src.data.preprocess \
 
 The first preprocessing run may download the `all-MiniLM-L6-v2` text embedding model through `sentence-transformers`. If the GPU server has no internet, run once on a machine with internet or configure the model cache before preprocessing.
 
+When `--embedding_cache_path` is provided, preprocessing bulk-encodes missing
+unique text strings before graph construction. This is faster than encoding one
+screen at a time and avoids rewriting the embedding cache after every screen.
+The default embedding batch size is `256`; lower it if CUDA runs out of memory:
+
+```bash
+python -m src.data.preprocess \
+  --rico_dir data/raw \
+  --out_dir data/processed \
+  --split_path data/splits/split_seed42.json \
+  --label_mode contextual \
+  --workers 4 \
+  --embedding_cache_path data/processed/text_embedding_cache.json \
+  --embedding_batch_size 128
+```
+
 For the local-only label ablation, run preprocessing again with a different label mode:
 
 ```bash

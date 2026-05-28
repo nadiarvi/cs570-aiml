@@ -47,6 +47,21 @@ python -m src.data.preprocess \
   --embedding_cache_path data/processed/text_embedding_cache.json
 ```
 
+When `--embedding_cache_path` is set, preprocessing first bulk-encodes missing
+text embeddings in larger batches, then builds graph files. Tune the embedding
+batch size if GPU memory allows:
+
+```bash
+python -m src.data.preprocess \
+  --rico_dir data/raw \
+  --out_dir data/processed \
+  --split_path data/splits/split_seed42.json \
+  --label_mode contextual \
+  --workers 4 \
+  --embedding_cache_path data/processed/text_embedding_cache.json \
+  --embedding_batch_size 256
+```
+
 Train on GPU:
 
 ```bash

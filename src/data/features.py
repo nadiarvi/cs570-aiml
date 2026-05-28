@@ -7,6 +7,7 @@ import os
 import hashlib
 import json
 import logging
+import gc
 
 import numpy as np
 import torch
@@ -167,6 +168,7 @@ def _save_embedding_cache(cache: dict, cache_path: str) -> None:
 
 
 _SENTENCE_MODEL = None
+_EMBEDDING_CACHE_BY_PATH: dict[str, dict] = {}
 
 
 def _sentence_model_device() -> str:
@@ -183,16 +185,26 @@ def _get_sentence_model():
     return _SENTENCE_MODEL
 
 
+def release_sentence_model() -> None:
+    """Release the cached encoder before starting multiprocessing workers."""
+    global _SENTENCE_MODEL
+    _SENTENCE_MODEL = None
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
 def _text_features_batch(
     texts: list[str],
     cache: dict,
-) -> tuple[np.ndarray, dict]:
+) -> tuple[np.ndarray, dict, bool]:
     """
     Embed a list of text strings. Returns [N, 384] float32 array and updated cache.
     Empty strings produce zero vectors.
     """
     embeddings = np.zeros((len(texts), TEXT_DIM), dtype=np.float32)
     to_encode: list[tuple[int, str]] = []
+    cache_changed = False
 
     for i, text in enumerate(texts):
         if not text:
@@ -212,8 +224,56 @@ def _text_features_batch(
             key = _text_cache_key(text)
             cache[key] = vec.tolist()
             embeddings[i] = vec.astype(np.float32)
+            cache_changed = True
 
-    return embeddings, cache
+    return embeddings, cache, cache_changed
+
+
+def _get_embedding_cache(embedding_cache_path: str | None) -> dict:
+    if not embedding_cache_path:
+        return {}
+    cache_path = os.path.abspath(embedding_cache_path)
+    if cache_path not in _EMBEDDING_CACHE_BY_PATH:
+        _EMBEDDING_CACHE_BY_PATH[cache_path] = _load_embedding_cache(cache_path)
+    return _EMBEDDING_CACHE_BY_PATH[cache_path]
+
+
+def precompute_text_embedding_cache(
+    texts: list[str],
+    embedding_cache_path: str,
+    batch_size: int = 256,
+) -> dict[str, int]:
+    """Encode unique missing text strings in large batches and save the cache once."""
+    cache_path = os.path.abspath(embedding_cache_path)
+    cache = _load_embedding_cache(cache_path)
+
+    unique_texts = sorted({text for text in texts if text})
+    missing_texts = [text for text in unique_texts if _text_cache_key(text) not in cache]
+
+    if missing_texts:
+        model = _get_sentence_model()
+        logger.info(
+            "Precomputing %d missing text embeddings (%d unique texts total)",
+            len(missing_texts),
+            len(unique_texts),
+        )
+        vecs = model.encode(
+            missing_texts,
+            batch_size=batch_size,
+            show_progress_bar=True,
+        )
+        for text, vec in zip(missing_texts, vecs):
+            cache[_text_cache_key(text)] = vec.tolist()
+        _save_embedding_cache(cache, cache_path)
+    else:
+        logger.info("Text embedding cache already covers %d unique texts", len(unique_texts))
+
+    _EMBEDDING_CACHE_BY_PATH[cache_path] = cache
+    return {
+        "unique_texts": len(unique_texts),
+        "missing_texts": len(missing_texts),
+        "cache_size": len(cache),
+    }
 
 
 def extract_features(
@@ -277,10 +337,10 @@ def extract_features(
         offset += TYPE_DIM
 
     if "text" in feature_groups:
-        cache = _load_embedding_cache(embedding_cache_path) if embedding_cache_path else {}
+        cache = _get_embedding_cache(embedding_cache_path)
         texts = [_build_text_string(node) for node in nodes]
-        text_embs, cache = _text_features_batch(texts, cache)
-        if embedding_cache_path:
+        text_embs, cache, cache_changed = _text_features_batch(texts, cache)
+        if embedding_cache_path and cache_changed:
             _save_embedding_cache(cache, embedding_cache_path)
         parts.append(text_embs)
         feature_slices["text"] = (offset, offset + TEXT_DIM)

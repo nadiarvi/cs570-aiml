@@ -22,13 +22,58 @@ import torch
 from tqdm import tqdm
 
 from src.data.rico_loader import load_hierarchy, flatten_hierarchy, get_app_id
-from src.data.features import extract_features
+from src.data.features import (
+    extract_features,
+    precompute_text_embedding_cache,
+    release_sentence_model,
+    _build_text_string,
+)
 from src.data.labeler import label_graph
 from src.data.graph_builder import build_graph
 from src.data.splits import make_splits, load_splits
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
+
+
+def _partition_for_app(app_id: str, split: dict) -> str:
+    train_app_ids = set(split.get("train_app_ids", []))
+    val_app_ids = set(split.get("val_app_ids", []))
+
+    if app_id in train_app_ids:
+        return "train"
+    if app_id in val_app_ids:
+        return "val"
+    return "other"
+
+
+def _output_path(
+    json_path: str,
+    out_dir: str,
+    label_mode: str,
+    split: dict,
+) -> str:
+    screen_id = os.path.splitext(os.path.basename(json_path))[0]
+    app_id = get_app_id(json_path)
+    partition = _partition_for_app(app_id, split)
+    return os.path.join(out_dir, partition, label_mode, app_id, f"{screen_id}.pt")
+
+
+def _collect_texts_for_precompute(json_paths: list[str]) -> list[str]:
+    texts: list[str] = []
+    for json_path in tqdm(
+        json_paths,
+        total=len(json_paths),
+        desc="Collecting text for embeddings",
+        unit="screen",
+    ):
+        try:
+            root = load_hierarchy(json_path)
+            flattened = flatten_hierarchy(root)
+            texts.extend(_build_text_string(node) for node in flattened.nodes)
+        except Exception:
+            logger.warning("Failed to collect text from %s:\n%s", json_path, traceback.format_exc())
+    return texts
 
 
 def _process_one(args: tuple) -> str | None:
@@ -44,19 +89,7 @@ def _process_one(args: tuple) -> str | None:
     try:
         screen_id = os.path.splitext(os.path.basename(json_path))[0]
         app_id = get_app_id(json_path)
-
-        # Determine partition by app_id — robust across sessions and extraction paths
-        train_app_ids = set(split.get("train_app_ids", []))
-        val_app_ids   = set(split.get("val_app_ids", []))
-
-        if app_id in train_app_ids:
-            partition = "train"
-        elif app_id in val_app_ids:
-            partition = "val"
-        else:
-            partition = "other"
-
-        out_path = os.path.join(out_dir, partition, label_mode, app_id, f"{screen_id}.pt")
+        out_path = _output_path(json_path, out_dir, label_mode, split)
         if os.path.exists(out_path):
             return out_path
 
@@ -99,6 +132,8 @@ def preprocess(
     label_mode: str = "contextual",
     workers: int = 4,
     embedding_cache_path: str | None = None,
+    precompute_embeddings: bool = True,
+    embedding_batch_size: int = 256,
     gold_app_ids: set[str] | None = None,
     max_screens: int | None = None,
 ) -> dict:
@@ -135,6 +170,26 @@ def preprocess(
         (p, out_dir, label_mode, embedding_cache_path, split)
         for p in json_paths
     ]
+
+    pending_json_paths = [
+        p for p in json_paths
+        if not os.path.exists(_output_path(p, out_dir, label_mode, split))
+    ]
+
+    if embedding_cache_path and precompute_embeddings and pending_json_paths:
+        texts = _collect_texts_for_precompute(pending_json_paths)
+        stats = precompute_text_embedding_cache(
+            texts,
+            embedding_cache_path=embedding_cache_path,
+            batch_size=embedding_batch_size,
+        )
+        logger.info(
+            "Text embedding precompute complete: %d unique, %d newly encoded, %d cached",
+            stats["unique_texts"],
+            stats["missing_texts"],
+            stats["cache_size"],
+        )
+        release_sentence_model()
 
     if workers > 1:
         with mp.Pool(workers) as pool:
@@ -181,6 +236,12 @@ def main():
     parser.add_argument("--label_mode", default="contextual", choices=["contextual", "local_only"])
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--embedding_cache_path", default=None)
+    parser.add_argument(
+        "--skip_embedding_precompute",
+        action="store_true",
+        help="Disable bulk text embedding precompute before graph processing.",
+    )
+    parser.add_argument("--embedding_batch_size", type=int, default=256)
     parser.add_argument("--max_screens", type=int, default=None)
     args = parser.parse_args()
 
@@ -191,6 +252,8 @@ def main():
         label_mode=args.label_mode,
         workers=args.workers,
         embedding_cache_path=args.embedding_cache_path,
+        precompute_embeddings=not args.skip_embedding_precompute,
+        embedding_batch_size=args.embedding_batch_size,
         max_screens=args.max_screens,
     )
 
