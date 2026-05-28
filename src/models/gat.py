@@ -19,8 +19,8 @@ class GATLayer(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        nn.init.xavier_uniform_(self.W.view(self.num_heads * self.W.shape[1], self.head_dim))
-        nn.init.xavier_uniform_(self.a.unsqueeze(0)).squeeze_(0)
+        nn.init.xavier_uniform_(self.W.data.view(-1, self.head_dim))
+        nn.init.xavier_uniform_(self.a.data)  # already 2D: [num_heads, 2*head_dim]
 
     def forward(self, x, edge_index):
         N = x.size(0)
