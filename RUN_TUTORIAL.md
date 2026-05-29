@@ -2,6 +2,31 @@
 
 This guide explains how to run the Rico UI graph classification pipeline from a fresh checkout through GPU training.
 
+## Table of Content
+- [Running the Project](#running-the-project)
+  - [Table of Content](#table-of-content)
+  - [1. Clone the Repository](#1-clone-the-repository)
+  - [2. Create a Python Environment](#2-create-a-python-environment)
+  - [3. Download the Rico Dataset](#3-download-the-rico-dataset)
+  - [4. Preprocess Rico into Graphs](#4-preprocess-rico-into-graphs)
+  - [5. Train a Model](#5-train-a-model)
+    - [Resuming an Interrupted Run](#resuming-an-interrupted-run)
+  - [6. Generate LLM Gold Labels](#6-generate-llm-gold-labels)
+    - [Cheaper Batch API Run](#cheaper-batch-api-run)
+  - [7. Run Hyperparameter Optimization](#7-run-hyperparameter-optimization)
+    - [Inspect Search Results](#inspect-search-results)
+    - [Retrain the Best Configurations](#retrain-the-best-configurations)
+  - [8. Run the Ablation Matrix](#8-run-the-ablation-matrix)
+  - [9. Recommended GPU Workflow](#9-recommended-gpu-workflow)
+  - [10. Common Issues](#10-common-issues)
+    - [`ModuleNotFoundError: No module named 'torch'`](#modulenotfounderror-no-module-named-torch)
+    - [`torch.cuda.is_available()` prints `False`](#torchcudais_available-prints-false)
+    - [No training graphs found](#no-training-graphs-found)
+    - [Sentence-transformers download fails](#sentence-transformers-download-fails)
+    - [`tensorboard: command not found`](#tensorboard-command-not-found)
+    - [Out of memory during training](#out-of-memory-during-training)
+  - [11. Useful Checks](#11-useful-checks)
+
 ## 1. Clone the Repository
 
 ```bash
@@ -233,7 +258,133 @@ python -m src.train \
   --resume_checkpoint_path results/checkpoints/gcn_2l_all_contextual/latest_checkpoint.pt
 ```
 
-## 6. Run Hyperparameter Optimization
+## 6. Generate LLM Gold Labels
+
+The project no longer needs hand-labeled gold annotations. Generate a 5,000
+node evaluation set from the validation partition with OpenAI:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and set `OPENAI_API_KEY`. The file is ignored by git.
+
+```bash
+python -m src.data.llm_gold_labeler \
+  --rico_dir data/raw \
+  --split_path data/splits/split_seed42.json \
+  --partition val \
+  --sample_size 5000 \
+  --batch_size 20 \
+  --model gpt-5-nano \
+  --out_csv data/gold/gold_test_labels.csv
+```
+
+`gpt-5-nano` is the default because it is currently OpenAI's cheapest nano text
+model. The job is resumable: it writes the sampled nodes to
+`data/gold/llm_gold_sample_manifest.jsonl`, appends completed labels to
+`data/gold/gold_test_labels.csv`, and writes an audit trail to
+`data/gold/llm_gold_raw.jsonl`.
+
+Preview the exact prompt and first batch without spending API credits:
+
+```bash
+python -m src.data.llm_gold_labeler \
+  --rico_dir data/raw \
+  --split_path data/splits/split_seed42.json \
+  --sample_size 5000 \
+  --dry_run
+```
+
+The generated CSV matches the existing gold-label loader:
+
+```text
+screen_id,node_id,label,annotator_id,app_id,sample_id,model,confidence,...
+```
+
+Use it directly in the ablation config via:
+
+```json
+"gold_labels_path": "data/gold/gold_test_labels.csv"
+```
+
+### Cheaper Batch API Run
+
+If you can wait for asynchronous processing, use OpenAI Batch API. It runs the
+same `/v1/responses` requests with a 24-hour completion window and lower token
+cost.
+
+Create and submit the batch:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and set `OPENAI_API_KEY` if you have not already.
+
+```bash
+python -m src.data.llm_gold_labeler \
+  --batch_create \
+  --rico_dir data/raw \
+  --split_path data/splits/split_seed42.json \
+  --partition val \
+  --sample_size 5000 \
+  --batch_size 20 \
+  --model gpt-5-nano \
+  --out_csv data/gold/gold_test_labels.csv
+```
+
+The command prints and saves the `batch_id` in:
+
+```text
+data/gold/openai_batch_info.json
+```
+
+Check progress:
+
+```bash
+python -m src.data.llm_gold_labeler \
+  --batch_status \
+  --batch_id batch_...
+```
+
+When the status is `completed`, download and merge the labels:
+
+```bash
+python -m src.data.llm_gold_labeler \
+  --batch_collect \
+  --batch_id batch_... \
+  --out_csv data/gold/gold_test_labels.csv
+```
+
+Batch files are kept locally for audit and reproducibility:
+
+```text
+data/gold/openai_batch_input.jsonl
+data/gold/openai_batch_metadata.json
+data/gold/openai_batch_output.jsonl
+```
+
+### After Labels Are Ready
+
+Validate that the label CSV loads and has the expected class distribution:
+
+```bash
+python - <<'PY'
+from src.data.gold import load_gold_test_labels
+df = load_gold_test_labels("data/gold/gold_test_labels.csv")
+print(df.head())
+print(df["label"].value_counts())
+print("rows:", len(df))
+PY
+```
+
+These labels are for evaluation only. Do not train on
+`data/gold/gold_test_labels.csv`; training still uses heuristic labels from
+preprocessing. After validation, run the ablation matrix in Section 8 to
+evaluate trained models against the LLM gold labels.
+
+## 7. Run Hyperparameter Optimization
 
 The first GCN and MLP runs are baseline configurations, not optimized models.
 Run a small search before deciding whether graph structure helps.
@@ -327,9 +478,10 @@ Use TensorBoard to compare all training curves:
 tensorboard --logdir results/checkpoints
 ```
 
-## 7. Run the Ablation Matrix
+## 8. Run the Ablation Matrix
 
-After preprocessing both `contextual` and `local_only` labels, run:
+After preprocessing both `contextual` and `local_only` labels and generating
+`data/gold/gold_test_labels.csv`, run:
 
 ```bash
 python -m src.ablation \
@@ -351,7 +503,7 @@ data/gold/gold_test_labels.csv
 
 If that file is missing, training can still run, but gold evaluation in the ablation script will fail.
 
-## 8. Recommended GPU Workflow
+## 9. Recommended GPU Workflow
 
 For a first GPU run:
 
@@ -374,7 +526,7 @@ python -m src.hyperparameter_search \
 If that works, remove `--max_screens 1000`, clear the partial processed data if
 needed, and run the full dataset plus the full quick hyperparameter search.
 
-## 9. Common Issues
+## 10. Common Issues
 
 ### `ModuleNotFoundError: No module named 'torch'`
 
@@ -432,7 +584,7 @@ Lower `batch_size` in the config file, for example:
 
 Then rerun training.
 
-## 10. Useful Checks
+## 11. Useful Checks
 
 Check current Git version:
 

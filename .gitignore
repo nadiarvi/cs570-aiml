@@ -14,12 +14,16 @@ env/
 .DS_Store
 .idea/
 .vscode/
+.env
+.env.*
+!.env.example
 
 # Data and generated outputs
 data/raw/*
 data/processed/*
 data/splits/*
 data/downloads/*
+data/gold/*
 results/checkpoints/*
 results/logs/*
 results/figures/*
@@ -28,6 +32,7 @@ results/figures/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/splits/.gitkeep
+!data/gold/.gitkeep
 !results/checkpoints/.gitkeep
 !results/logs/.gitkeep
 !results/figures/.gitke
