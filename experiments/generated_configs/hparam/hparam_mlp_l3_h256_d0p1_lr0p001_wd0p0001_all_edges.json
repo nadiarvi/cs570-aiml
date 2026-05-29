@@ -1,0 +1,30 @@
+{
+  "seed": 42,
+  "split_path": "data/splits/split_seed42.json",
+  "processed_dir": "data/processed",
+  "gold_labels_path": "data/gold/gold_test_labels.csv",
+  "hidden_dim": 256,
+  "dropout": 0.1,
+  "lr": 0.001,
+  "weight_decay": 0.0001,
+  "epochs": 100,
+  "patience": 15,
+  "batch_size": 32,
+  "num_workers": 4,
+  "device": "cuda",
+  "save_root": "results/checkpoints",
+  "num_heads": 4,
+  "label_mode": "contextual",
+  "feature_groups": [
+    "visual",
+    "structural",
+    "type",
+    "text"
+  ],
+  "include_sibling_edges": true,
+  "model_type": "mlp",
+  "name": "hparam_mlp_l3_h256_d0p1_lr0p001_wd0p0001_all_edges",
+  "num_layers": 3,
+  "save_dir": "results/checkpoints/hparam/hparam_mlp_l3_h256_d0p1_lr0p001_wd0p0001_all_edges",
+  "resume": false
+}
